@@ -59,6 +59,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode = 'learn', se
     setMessages(initialMessages);
   }, [sessionId, initialMessages]);
 
+  // Sync mode from props
+  useEffect(() => {
+    if (mode !== currentMode) {
+        setCurrentMode(mode);
+        // Reset for new mode if not restoring a session
+        if (initialMessages.length === 0) {
+            setMessages([]);
+            setChatSession(null);
+        }
+    }
+  }, [mode, currentMode, initialMessages]);
+
   // Update parent when messages change
   useEffect(() => {
     if (onMessagesChange && messages !== initialMessages) {
@@ -66,10 +78,25 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ mode = 'learn', se
     }
   }, [messages, onMessagesChange, initialMessages]);
 
+  // Trigger Code Rendering on Message Update
+  useEffect(() => {
+    // Syntax Highlighting
+    if ((window as any).Prism) {
+        try {
+            (window as any).Prism.highlightAll();
+        } catch (e) {
+            console.debug("Prism highlight error", e);
+        }
+    }
+  }, [messages]);
+
   // Initialize Chat Session
   useEffect(() => {
     const initChat = async () => {
-        if (!process.env.API_KEY) return;
+        if (!process.env.API_KEY) {
+            console.error("API_KEY not found in environment");
+            return;
+        }
         
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -88,6 +115,7 @@ You are HyperMind, an advanced AI Learning Companion.
    - Analyze requests.
    - If complex, generate a JSON curriculum first: \`{ "curriculum": [...] }\`
    - Use Markdown for rich text.
+   - **MATH:** Always use LaTeX for math formulas. Wrap inline math in $...$ and block math in $$...$$.
 
 3. **Debate Mode:**
    - If the user selects "Debate Mode", adopt a contrarian persona.
@@ -236,6 +264,9 @@ You are HyperMind, an advanced AI Learning Companion.
         content = content.replace('[LESSON_COMPLETE]', '').trim();
     }
 
+    // Clean up excessive newlines
+    content = content.trim();
+
     const htmlContent = marked.parse(content) as string;
 
     return { content, isCurriculum, curriculumData, isLessonComplete, htmlContent, genUiType, genUiData, genUiConfig, quizData, diagramData };
@@ -371,7 +402,7 @@ You are HyperMind, an advanced AI Learning Companion.
           ))}
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-10 no-scrollbar pb-32">
+      <div ref={scrollRef} id="chat-container" className="flex-1 overflow-y-auto p-4 md:p-8 space-y-10 no-scrollbar pb-32">
         {messages.map((msg) => (
             <div key={msg.id} className={cn(
                 "flex gap-4 group animate-in fade-in slide-in-from-bottom-2 duration-500",
