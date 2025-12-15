@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Activity } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Activity, AlertTriangle } from 'lucide-react';
 import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
 import { cn, base64ToUint8Array, uint8ArrayToBase64, decodeAudioData } from '../lib/utils';
 import { SplineScene } from './ui/spline';
@@ -13,6 +13,7 @@ export function LiveSession({ onClose }: LiveSessionProps) {
   const [isMicOn, setIsMicOn] = useState(true);
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [volume, setVolume] = useState(0);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(document.createElement('canvas'));
@@ -32,6 +33,36 @@ export function LiveSession({ onClose }: LiveSessionProps) {
 
     const startSession = async () => {
         try {
+            if (!process.env.API_KEY) throw new Error("API Key Missing");
+            
+            // 1. Get User Media first to fail fast on permissions
+            let stream: MediaStream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            } catch (err: any) {
+                console.error("Media Access Error:", err);
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    throw new Error("PermissionDenied");
+                } else if (err.name === 'NotFoundError') {
+                     // Try audio only if video not found
+                     try {
+                        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        setIsVideoOn(false); // Force video off state
+                     } catch (audioErr) {
+                        throw new Error("NoDeviceFound");
+                     }
+                } else {
+                    throw err;
+                }
+            }
+
+            streamRef.current = stream;
+            
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.play().catch(() => { /* ignore play errors */ });
+            }
+
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             
             // Audio Output Context - Handle AudioContext possibly not being available immediately
@@ -53,20 +84,9 @@ export function LiveSession({ onClose }: LiveSessionProps) {
             }
 
             // Create a silence node to prevent feedback loop (Mic -> Speaker)
-            // ScriptProcessor needs to be connected to destination to work in some browsers, 
-            // but we don't want to hear it.
             const silenceNode = inputAudioContextRef.current.createGain();
             silenceNode.gain.value = 0;
             silenceNode.connect(inputAudioContextRef.current.destination);
-
-            // Get User Media
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-            streamRef.current = stream;
-            
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                videoRef.current.play();
-            }
 
             // Connect to Gemini Live
             const sessionPromise = ai.live.connect({
@@ -118,7 +138,6 @@ export function LiveSession({ onClose }: LiveSessionProps) {
                             };
                             
                             source.connect(scriptProcessor);
-                            // Connect to silence node to keep processor alive without feedback
                             scriptProcessor.connect(silenceNode);
                         }
                     },
@@ -175,6 +194,7 @@ export function LiveSession({ onClose }: LiveSessionProps) {
                     },
                     onerror: (e) => {
                         console.error("Live session error", e);
+                        setErrorMsg("Connection Lost");
                     }
                 },
                 config: {
@@ -182,8 +202,19 @@ export function LiveSession({ onClose }: LiveSessionProps) {
                     speechConfig: {
                         voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
                     },
-                    systemInstruction: "You are a helpful, witty, and concise AI tutor. We are in a real-time voice call. Keep responses relatively short and conversational. If the user shows you something on camera, describe it and help them learn about it."
+                    systemInstruction: "You are a helpful, witty, and concise AI tutor. We are in a real-time voice call. Keep responses relatively short and conversational."
                 }
+            });
+            
+            // Handle initial connection failure (e.g. Quota Exceeded)
+            sessionPromise.catch(e => {
+                const isQuota = e.message?.includes('429') || e.status === 429 || e.toString().includes('Quota');
+                if (isQuota) {
+                    setErrorMsg("Quota Exceeded (Rate Limit). Try again later.");
+                } else {
+                    setErrorMsg("Failed to establish neural link.");
+                }
+                setIsConnected(false);
             });
             
             // Video Streaming Interval
@@ -192,9 +223,9 @@ export function LiveSession({ onClose }: LiveSessionProps) {
                 
                 const canvas = canvasRef.current;
                 const video = videoRef.current;
-                if (video.readyState < 2) return; // Wait for video to be ready
+                if (video.readyState < 2) return; 
 
-                canvas.width = video.videoWidth / 4; // Downscale more for performance
+                canvas.width = video.videoWidth / 4; 
                 canvas.height = video.videoHeight / 4;
                 const ctx = canvas.getContext('2d');
                 if (ctx) {
@@ -202,7 +233,7 @@ export function LiveSession({ onClose }: LiveSessionProps) {
                     const base64 = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
                     
                     sessionPromise.then(session => {
-                        if (isConnected) { // Only send if connected
+                        if (isConnected) {
                              session.sendRealtimeInput({
                                 media: {
                                     mimeType: 'image/jpeg',
@@ -212,16 +243,27 @@ export function LiveSession({ onClose }: LiveSessionProps) {
                         }
                     }).catch(() => {});
                 }
-            }, 1000); // 1 FPS
+            }, 1000); 
 
             cleanupFunc = () => {
                 clearInterval(videoInterval);
                 sessionPromise.then(session => session.close()).catch(() => {});
             };
 
-        } catch (e) {
+        } catch (e: any) {
             console.error("Failed to start session", e);
-            if (mounted) onClose();
+            const isQuota = e.message?.includes('429') || e.status === 429 || e.toString().includes('Quota');
+            const isPermission = e.message === 'PermissionDenied' || e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError';
+            
+            if (isQuota) {
+                setErrorMsg("Quota Limit Reached.");
+            } else if (isPermission) {
+                setErrorMsg("Permission Denied: Please allow Camera/Mic access.");
+            } else if (e.message === 'NoDeviceFound') {
+                setErrorMsg("No input devices found.");
+            } else {
+                setErrorMsg("Microphone/Camera access denied or API error.");
+            }
         }
     };
 
@@ -234,7 +276,7 @@ export function LiveSession({ onClose }: LiveSessionProps) {
         if (audioContextRef.current) audioContextRef.current.close();
         if (inputAudioContextRef.current) inputAudioContextRef.current.close();
     };
-  }, [onClose]); // Removed dependencies that shouldn't trigger restart
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-4">
@@ -245,9 +287,9 @@ export function LiveSession({ onClose }: LiveSessionProps) {
         
         {/* Connection Status */}
         <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 bg-neutral-900/50 backdrop-blur-md rounded-full border border-white/10 shadow-lg">
-            <div className={cn("w-2 h-2 rounded-full", isConnected ? "bg-green-500 animate-pulse" : "bg-yellow-500")} />
-            <span className="text-xs font-medium text-white tracking-wide">
-                {isConnected ? "LIVE NEURAL LINK ACTIVE" : "ESTABLISHING CONNECTION..."}
+            <div className={cn("w-2 h-2 rounded-full", errorMsg ? "bg-red-500" : isConnected ? "bg-green-500 animate-pulse" : "bg-yellow-500")} />
+            <span className={cn("text-xs font-medium tracking-wide", errorMsg ? "text-red-400" : "text-white")}>
+                {errorMsg ? errorMsg.toUpperCase() : isConnected ? "LIVE NEURAL LINK ACTIVE" : "ESTABLISHING CONNECTION..."}
             </span>
         </div>
 
@@ -256,30 +298,45 @@ export function LiveSession({ onClose }: LiveSessionProps) {
             
             {/* User Camera */}
             <div className="relative flex-1 bg-black overflow-hidden group">
-                 <video 
-                    ref={videoRef} 
-                    className={cn("w-full h-full object-cover transform scale-x-[-1] transition-opacity duration-500", !isVideoOn && "opacity-0")} 
-                    muted 
-                    playsInline 
-                />
-                {!isVideoOn && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-20 h-20 rounded-full bg-neutral-800 flex items-center justify-center animate-in zoom-in">
-                            <VideoOff className="text-neutral-500" />
-                        </div>
-                    </div>
-                )}
-                
-                {/* Audio Visualizer Overlay */}
-                <div className="absolute bottom-6 left-6 flex gap-1 items-end h-8 z-10">
-                     {[...Array(5)].map((_, i) => (
-                        <div 
-                            key={i} 
-                            className="w-1.5 bg-indigo-500 rounded-full transition-all duration-75 shadow-[0_0_10px_rgba(99,102,241,0.5)]"
-                            style={{ height: `${Math.max(4, volume * (1 + Math.random()))}px` }}
+                 {errorMsg ? (
+                     <div className="absolute inset-0 flex flex-col items-center justify-center text-red-500 p-6 text-center animate-in fade-in">
+                         <AlertTriangle size={48} className="mb-4" />
+                         <p className="font-bold">Connection Failed</p>
+                         <p className="text-sm opacity-70 mt-2">{errorMsg}</p>
+                         {errorMsg.includes('Permission') && (
+                             <button onClick={onClose} className="mt-4 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-full text-sm">
+                                Close & Retry
+                             </button>
+                         )}
+                     </div>
+                 ) : (
+                    <>
+                        <video 
+                            ref={videoRef} 
+                            className={cn("w-full h-full object-cover transform scale-x-[-1] transition-opacity duration-500", !isVideoOn && "opacity-0")} 
+                            muted 
+                            playsInline 
                         />
-                     ))}
-                </div>
+                        {!isVideoOn && (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="w-20 h-20 rounded-full bg-neutral-800 flex items-center justify-center animate-in zoom-in">
+                                    <VideoOff className="text-neutral-500" />
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Audio Visualizer Overlay */}
+                        <div className="absolute bottom-6 left-6 flex gap-1 items-end h-8 z-10">
+                             {[...Array(5)].map((_, i) => (
+                                <div 
+                                    key={i} 
+                                    className="w-1.5 bg-indigo-500 rounded-full transition-all duration-75 shadow-[0_0_10px_rgba(99,102,241,0.5)]"
+                                    style={{ height: `${Math.max(4, volume * (1 + Math.random()))}px` }}
+                                />
+                             ))}
+                        </div>
+                    </>
+                 )}
             </div>
 
             {/* AI Avatar / Status */}
@@ -290,18 +347,23 @@ export function LiveSession({ onClose }: LiveSessionProps) {
                          {/* Dynamic Activity Indicator */}
                          <div className={cn(
                              "w-32 h-32 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-indigo-600 transition-all duration-1000",
-                             isConnected ? "animate-spin [animation-duration:4s]" : "scale-90 opacity-50 grayscale"
+                             isConnected ? "animate-spin [animation-duration:4s]" : "scale-90 opacity-50 grayscale",
+                             errorMsg && "from-red-900 to-red-950 opacity-100 grayscale-0"
                          )} />
                          
                          <div className="absolute inset-0 flex items-center justify-center">
-                            <Activity className={cn("text-white transition-opacity", isConnected ? "opacity-100" : "opacity-50")} size={32} />
+                            {errorMsg ? (
+                                <AlertTriangle className="text-red-500" size={32} />
+                            ) : (
+                                <Activity className={cn("text-white transition-opacity", isConnected ? "opacity-100" : "opacity-50")} size={32} />
+                            )}
                          </div>
                     </div>
                 </div>
                 <div className="absolute bottom-8 text-center">
                     <h3 className="text-white font-bold text-lg tracking-tight">HyperMind AI</h3>
                     <p className={cn("text-indigo-300 text-sm font-medium transition-opacity", isConnected ? "animate-pulse" : "opacity-50")}>
-                        {isConnected ? "Listening & Watching" : "Offline"}
+                        {errorMsg ? "System Offline" : isConnected ? "Listening & Watching" : "Offline"}
                     </p>
                 </div>
             </div>
@@ -312,7 +374,8 @@ export function LiveSession({ onClose }: LiveSessionProps) {
         <div className="mt-8 flex items-center gap-6 z-20">
             <button 
                 onClick={() => setIsMicOn(!isMicOn)}
-                className={cn("p-4 rounded-full transition-all duration-200 hover:scale-110 active:scale-95", isMicOn ? "bg-neutral-800 hover:bg-neutral-700 text-white" : "bg-red-500/20 text-red-500 border border-red-500/50")}
+                disabled={!!errorMsg}
+                className={cn("p-4 rounded-full transition-all duration-200 hover:scale-110 active:scale-95", isMicOn && !errorMsg ? "bg-neutral-800 hover:bg-neutral-700 text-white" : "bg-red-500/20 text-red-500 border border-red-500/50")}
             >
                 {isMicOn ? <Mic size={24} /> : <MicOff size={24} />}
             </button>
@@ -326,7 +389,8 @@ export function LiveSession({ onClose }: LiveSessionProps) {
 
             <button 
                 onClick={() => setIsVideoOn(!isVideoOn)}
-                className={cn("p-4 rounded-full transition-all duration-200 hover:scale-110 active:scale-95", isVideoOn ? "bg-neutral-800 hover:bg-neutral-700 text-white" : "bg-red-500/20 text-red-500 border border-red-500/50")}
+                disabled={!!errorMsg}
+                className={cn("p-4 rounded-full transition-all duration-200 hover:scale-110 active:scale-95", isVideoOn && !errorMsg ? "bg-neutral-800 hover:bg-neutral-700 text-white" : "bg-red-500/20 text-red-500 border border-red-500/50")}
             >
                 {isVideoOn ? <Video size={24} /> : <VideoOff size={24} />}
             </button>

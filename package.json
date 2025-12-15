@@ -15,12 +15,12 @@
     "clsx": "^2.1.1",
     "@splinetool/react-spline": "^4.1.0",
     "lucide-react": "^0.475.0",
+    "recharts": "^3.5.1",
     "@google/genai": "^1.33.0",
-    "marked": "12.0.1",
-    "recharts": "2.12.7",
-    "pdfjs-dist": "3.11.174",
-    "reactflow": "11.10.1",
-    "dagre": "0.8.5"
+    "marked": "^17.0.1",
+    "dagre": "^0.8.5",
+    "reactflow": "^11.11.4",
+    "pdfjs-dist": "^5.4.449"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

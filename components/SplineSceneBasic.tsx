@@ -4,17 +4,15 @@ import React, { useState } from 'react'
 import { SplineScene } from "./ui/spline";
 import { Card } from "./ui/card"
 import { Spotlight } from "./ui/spotlight"
-import { ArrowRight, BookOpen, BrainCircuit, Check, Mail, Lock, Github, ArrowLeft, Globe } from 'lucide-react';
+import { ArrowRight, Mail, Lock, Github, ArrowLeft, Globe } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface Props {
-    onStart: (mode: string) => void;
+    onStart: () => void;
 }
  
 export function SplineSceneBasic({ onStart }: Props) {
-  const [step, setStep] = useState<'intro' | 'auth' | 'config'>('intro');
-  const [selectedMode, setSelectedMode] = useState<string | null>(null);
-  const [isLaunching, setIsLaunching] = useState(false);
+  const [step, setStep] = useState<'intro' | 'auth'>('intro');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoadingAuth, setIsLoadingAuth] = useState(false);
@@ -22,36 +20,12 @@ export function SplineSceneBasic({ onStart }: Props) {
   const handleAuth = (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoadingAuth(true);
-    // Simulate auth delay
+    // Simulate auth delay then launch directly
     setTimeout(() => {
         setIsLoadingAuth(false);
-        setStep('config');
-    }, 1000);
-  };
-
-  const handleLaunch = () => {
-    if (!selectedMode) return;
-    setIsLaunching(true);
-    // Simulate initialization delay for effect
-    setTimeout(() => {
-        onStart(selectedMode);
+        onStart();
     }, 1500);
   };
-
-  const modes = [
-    {
-        id: 'learn',
-        title: 'Concept Tutor',
-        desc: 'Deep explanations, analogies, and step-by-step reasoning.',
-        icon: BookOpen
-    },
-    {
-        id: 'practice',
-        title: 'Practice & Quiz',
-        desc: 'Generate problems, flashcards, and test your knowledge.',
-        icon: BrainCircuit
-    }
-  ];
 
   return (
     <Card className="w-full h-full bg-black/[0.96] relative overflow-hidden border-neutral-800 flex flex-col shadow-2xl">
@@ -94,7 +68,7 @@ export function SplineSceneBasic({ onStart }: Props) {
                     HyperMind
                 </h1>
                 <p className="mt-6 text-lg text-neutral-400 max-w-lg leading-relaxed">
-                    Your personal AI Learning Companion. Democratizing high-quality education with adaptive pathways, instant practice generation, and accessible tutoring.
+                    Your personal AI Learning Companion. Democratizing high-quality education with adaptive pathways.
                 </p>
 
                 <button 
@@ -107,11 +81,11 @@ export function SplineSceneBasic({ onStart }: Props) {
             </div>
         </div>
 
-        {/* AUTH & CONFIG (RIGHT PANEL) */}
-        {/* Visible when step is 'auth' or 'config' */}
+        {/* AUTH (RIGHT PANEL) */}
+        {/* Visible when step is 'auth' */}
         <div className={cn(
             "md:absolute inset-y-0 right-0 w-full md:w-[50%] p-8 md:p-16 flex flex-col justify-center transition-all duration-1000 ease-in-out z-10",
-            (step === 'auth' || step === 'config') 
+            step === 'auth' 
                 ? "opacity-100 translate-x-0 pointer-events-auto" 
                 : "opacity-0 translate-x-full pointer-events-none"
         )}>
@@ -184,73 +158,6 @@ export function SplineSceneBasic({ onStart }: Props) {
                             <Globe size={18} /> Google
                         </button>
                     </div>
-                 </div>
-            </div>
-
-            {/* CONFIG STEP */}
-            <div className={cn(
-                "absolute inset-0 p-8 md:p-16 flex flex-col justify-center transition-all duration-500",
-                step === 'config' ? "opacity-100 scale-100 delay-200 pointer-events-auto" : "opacity-0 scale-95 pointer-events-none"
-            )}>
-                 <div className="mb-8">
-                    <button 
-                        onClick={() => setStep('auth')} 
-                        className="flex items-center gap-2 text-neutral-500 hover:text-white mb-6 transition-colors group"
-                    >
-                        <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform"/> Back
-                    </button>
-                    <h2 className="text-3xl font-bold text-white mb-2">Initialize Session</h2>
-                    <p className="text-neutral-400">Select your preferred learning mode.</p>
-                 </div>
-
-                 <div className="grid grid-cols-1 gap-4 mb-8 max-w-lg">
-                    {modes.map((mode) => (
-                        <button
-                            key={mode.id}
-                            onClick={() => setSelectedMode(mode.id)}
-                            className={cn(
-                                "flex items-start gap-4 p-4 rounded-xl border transition-all duration-200 text-left group",
-                                selectedMode === mode.id 
-                                    ? "bg-indigo-500/10 border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.2)]" 
-                                    : "bg-neutral-900/50 border-neutral-800 hover:bg-neutral-900 hover:border-neutral-700"
-                            )}
-                        >
-                            <div className={cn(
-                                "p-3 rounded-lg transition-colors shrink-0",
-                                selectedMode === mode.id ? "bg-indigo-500 text-white" : "bg-neutral-800 text-neutral-400 group-hover:text-white"
-                            )}>
-                                <mode.icon size={20} />
-                            </div>
-                            <div>
-                                <h3 className={cn("font-medium mb-1", selectedMode === mode.id ? "text-white" : "text-neutral-300")}>
-                                    {mode.title}
-                                </h3>
-                                <p className="text-xs text-neutral-500 leading-relaxed">
-                                    {mode.desc}
-                                </p>
-                            </div>
-                        </button>
-                    ))}
-                 </div>
-
-                 <div className="flex items-center gap-4">
-                    <button 
-                        onClick={handleLaunch}
-                        disabled={!selectedMode || isLaunching}
-                        className={cn(
-                            "w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-8 py-3.5 rounded-xl font-semibold transition-all shadow-lg hover:bg-indigo-500",
-                            !selectedMode ? "opacity-50 cursor-not-allowed" : "hover:scale-105 active:scale-95 hover:shadow-[0_0_20px_rgba(99,102,241,0.4)]",
-                            isLaunching && "animate-pulse cursor-wait"
-                        )}
-                    >
-                        {isLaunching ? (
-                            <>Initializing Neural Link...</>
-                        ) : (
-                            <>
-                                Launch Session <Check size={18} />
-                            </>
-                        )}
-                    </button>
                  </div>
             </div>
 

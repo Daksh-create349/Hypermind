@@ -1,5 +1,8 @@
 {
   "name": "HyperMind",
   "description": "A futuristic AI research assistant featuring interactive 3D visualizations and chat.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
 }

@@ -1,45 +1,69 @@
 import React, { useState } from 'react';
-import { ChatInterface } from './components/ChatInterface';
 import { SplineSceneBasic } from './components/SplineSceneBasic';
+import { Onboarding } from './components/Onboarding';
+import { Sidebar } from './components/Sidebar';
+import { ChatInterface } from './components/ChatInterface';
 import { Spotlight } from './components/ui/spotlight';
+import { BrainCircuit } from 'lucide-react';
 
 export default function App() {
   const [hasStarted, setHasStarted] = useState(false);
-  const [mode, setMode] = useState('fast');
+  const [isOnboarded, setIsOnboarded] = useState(false);
+  const [userData, setUserData] = useState<any>(null);
 
-  const handleStart = (selectedMode: string) => {
-    setMode(selectedMode);
+  const handleStart = () => {
     setHasStarted(true);
   };
 
+  const handleOnboardingComplete = (data: any) => {
+      setUserData(data);
+      setIsOnboarded(true);
+  };
+
   return (
-    <div className="h-screen w-full bg-black flex overflow-hidden relative selection:bg-indigo-500/30">
+    <div className="h-screen w-full bg-black flex overflow-hidden relative selection:bg-white/30">
        {/* Global Background Spotlight */}
        <Spotlight className="-top-40 left-0 opacity-40 z-0" fill="white" />
 
        {/* Main Content Area */}
        <div className="flex-1 flex flex-col h-full relative z-10">
           
-          {/* Header Area */}
-          <header className={`h-16 border-b border-white/5 flex items-center px-6 justify-between bg-black/40 backdrop-blur-sm ${!hasStarted ? 'hidden' : 'flex'}`}>
-             <div className="flex items-center gap-2">
-                 <span className="font-bold text-white text-lg tracking-tight">HyperMind</span>
-                 <span className="text-[10px] bg-neutral-900 border border-neutral-800 text-neutral-400 px-2 py-0.5 rounded-full">BETA 2.0</span>
-             </div>
-          </header>
+          {/* Header Area (Visible only during Onboarding) */}
+          {!isOnboarded && (
+              <header className={`h-16 border-b border-white/10 flex items-center px-6 justify-between bg-black/40 backdrop-blur-sm ${!hasStarted ? 'hidden' : 'flex'} z-50`}>
+                 <div className="flex items-center gap-2">
+                     <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center">
+                        <BrainCircuit size={18} className="text-black" />
+                     </div>
+                     <span className="font-bold text-white text-lg tracking-tight">HyperMind</span>
+                 </div>
+              </header>
+          )}
 
-          <main className="flex-1 overflow-hidden p-0 md:p-6 flex flex-col gap-6 relative">
+          <main className="flex-1 overflow-hidden p-0 flex flex-col relative">
             
+            {/* 1. Landing & Auth Layer */}
             <div className={`absolute inset-0 z-30 transition-all duration-700 ease-in-out transform ${hasStarted ? '-translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}`}>
                  <SplineSceneBasic onStart={handleStart} />
             </div>
 
-            <div className={`flex flex-col h-full gap-6 transition-all duration-1000 delay-300 ${hasStarted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'}`}>
-                {/* Chat - Full Height */}
-                <div className="flex-1 min-h-0 bg-neutral-900/20 border border-white/5 rounded-2xl overflow-hidden backdrop-blur-md relative">
-                    <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none" />
-                    <ChatInterface mode={mode} />
-                </div>
+            {/* 2. Application Layer */}
+            <div className={`flex flex-col h-full w-full transition-all duration-1000 delay-300 ${hasStarted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'}`}>
+                
+                {!isOnboarded ? (
+                    // Onboarding Screen (Includes Dashboard Summary Step)
+                    <div className="flex-1 min-h-0 animate-in fade-in zoom-in-95 duration-700 p-6 md:p-8">
+                        <Onboarding onComplete={handleOnboardingComplete} />
+                    </div>
+                ) : (
+                    // Main App (Sidebar + Chat)
+                    <div className="flex h-full animate-in fade-in slide-in-from-bottom-8 duration-700">
+                        <Sidebar className="w-64 hidden md:flex border-r border-white/10" />
+                        <div className="flex-1 flex flex-col min-w-0 bg-neutral-950">
+                            <ChatInterface mode="learn" userData={userData} />
+                        </div>
+                    </div>
+                )}
             </div>
             
           </main>

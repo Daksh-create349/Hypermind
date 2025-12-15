@@ -3,10 +3,8 @@ import { twMerge } from "tailwind-merge"
 import * as pdfjs from 'pdfjs-dist';
 
 // Fix for pdfjs-dist import via esm.sh
-// Sometimes it comes as a default export, sometimes as named exports depending on the environment
 const pdfjsLib = (pdfjs as any).default || pdfjs;
 
-// Use cdnjs for the worker script as it serves the correct format for importScripts
 if (pdfjsLib.GlobalWorkerOptions) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 }
@@ -20,7 +18,6 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
         const reader = new FileReader();
         reader.onloadend = () => {
             const result = reader.result as string;
-            // Remove the Data-URI prefix
             resolve(result.split(',')[1]);
         };
         reader.onerror = reject;
@@ -31,9 +28,6 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
 export const extractTextFromPdf = async (file: File): Promise<string> => {
     try {
         const arrayBuffer = await file.arrayBuffer();
-        
-        // Use the resolved lib
-        // Configure CMaps for better text extraction support
         const loadingTask = pdfjsLib.getDocument({
             data: arrayBuffer,
             cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
@@ -57,7 +51,6 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
     }
 };
 
-// Simple audio encoding/decoding for Live API
 export function base64ToUint8Array(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -94,4 +87,49 @@ export async function decodeAudioData(
     }
   }
   return buffer;
+}
+
+/**
+ * Robustly parses JSON from a string that might contain extra text (e.g. Markdown).
+ * Scans for the outermost {} pair that forms valid JSON.
+ */
+export function parseJsonFromText(text: string): any {
+    if (!text) return null;
+    
+    // 1. Try cleaning markdown code blocks first
+    let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // 2. Try direct parse
+    try {
+        return JSON.parse(clean);
+    } catch (e) {
+        // Continue to extraction logic
+    }
+
+    // 3. Extract using brace counting
+    let start = clean.indexOf('{');
+    if (start === -1) return null;
+
+    let braceCount = 0;
+    let end = -1;
+
+    for (let i = start; i < clean.length; i++) {
+        if (clean[i] === '{') braceCount++;
+        else if (clean[i] === '}') {
+            braceCount--;
+            if (braceCount === 0) {
+                end = i;
+                // Try parsing the substring found so far. 
+                try {
+                    const candidate = clean.substring(start, end + 1);
+                    return JSON.parse(candidate);
+                } catch(e) {
+                    // parsing failed
+                }
+                break;
+            }
+        }
+    }
+    
+    return null;
 }
